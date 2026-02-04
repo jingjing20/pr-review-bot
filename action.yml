@@ -1,0 +1,42 @@
+name: 'AI PR Review Bot'
+description: 'AI-powered code review for Pull Requests'
+author: 'jingjing20'
+
+branding:
+  icon: 'code'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  openai-api-key:
+    description: 'OpenAI API key'
+    required: true
+  openai-base-url:
+    description: 'OpenAI API base URL (optional)'
+    required: false
+    default: ''
+  openai-model:
+    description: 'OpenAI model to use'
+    required: true
+  agents:
+    description: 'Comma-separated list of agents to use (logic,security,style)'
+    required: false
+    default: 'logic,security,style'
+  post-comment:
+    description: 'Whether to post review as PR comment'
+    required: false
+    default: 'true'
+
+outputs:
+  total-issues:
+    description: 'Total number of issues found'
+  errors:
+    description: 'Number of errors'
+  warnings:
+    description: 'Number of warnings'
+
+runs:
+  using: 'node20'
+  main: 'dist/action/index.js'
