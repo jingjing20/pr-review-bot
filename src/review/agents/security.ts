@@ -32,7 +32,13 @@ const SYSTEM_PROMPT = `你是一个安全审计专家，专注于发现代码中
 - 提供修复建议
 - 如果没有安全问题，返回空的 issues 数组
 - 不要误报，只报告真正的安全风险
-- 用中文回复`;
+- 用中文回复
+
+行号规则（重要）：
+- 代码中每行以 [L<number>] 或 [DEL] 开头
+- lineNumber 必须使用 [L<number>] 中的数字
+- 不可使用 [DEL] 标记的行（这些是被删除的行）
+- 只评论新增或修改的代码行`;
 
 export class SecurityCheckerAgent implements ReviewAgent {
 	name = 'security-checker';

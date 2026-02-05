@@ -2,10 +2,10 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { GitHubClient, parsePRUrl, parseDiff } from './github/index.js';
+import { GitHubClient, parsePRUrl, parseDiff, getValidLineNumbers } from './github/index.js';
+import type { ReviewCommentInput, PRIdentifier } from './github/index.js';
 import { LogicReviewerAgent, SecurityCheckerAgent, StyleAdvisorAgent, ReviewOrchestrator } from './review/index.js';
-import type { PRReviewResult } from './review/index.js';
-import type { PRIdentifier } from './github/index.js';
+import type { PRReviewResult, ReviewComment } from './review/index.js';
 
 const program = new Command();
 
@@ -52,6 +52,10 @@ program
 			const securityAgent = new SecurityCheckerAgent(openaiKey, openaiBaseUrl, openaiModel);
 			const styleAgent = new StyleAdvisorAgent(openaiKey, openaiBaseUrl, openaiModel);
 			const orchestrator = new ReviewOrchestrator([logicAgent, securityAgent, styleAgent]);
+			const validLinesByFile = new Map<string, Set<number>>();
+			for (const chunk of chunks) {
+				validLinesByFile.set(chunk.filePath, getValidLineNumbers(chunk));
+			}
 
 			const files = chunks.map((chunk) => ({ chunk }));
 			const result = await orchestrator.reviewPR(pr.number, pr.title, pr.body, files);
@@ -64,10 +68,18 @@ program
 			}
 
 			if (options.postComment && result.totalComments > 0) {
-				console.log('\n📝 Posting review to GitHub...');
-				const commentBody = formatReviewAsMarkdown(result, pr.title, prUrl);
-				await github.createIssueComment(prId, commentBody);
-				console.log('✅ Review posted successfully!');
+				const { lineComments, invalidComments } = filterValidComments(result.commentsByFile, validLinesByFile);
+
+				if (lineComments.length > 0) {
+					console.log(`\n Posting ${lineComments.length} inline review comments...`);
+					await github.createReview(prId, pr.head.sha, lineComments);
+					console.log(' Inline comments posted successfully!');
+				}
+
+				console.log(' Posting summary comment...');
+				const summaryBody = formatReviewAsMarkdown(result, pr.title, prUrl, invalidComments);
+				await github.createIssueComment(prId, summaryBody);
+				console.log(' Summary comment posted successfully!');
 			}
 		} catch (error) {
 			console.error('Error:', error instanceof Error ? error.message : error);
@@ -134,40 +146,79 @@ function printReviewResult(result: PRReviewResult): void {
 	console.log('━'.repeat(60));
 }
 
-function formatReviewAsMarkdown(result: PRReviewResult, prTitle: string, prUrl: string): string {
+function filterValidComments(
+	commentsByFile: Map<string, ReviewComment[]>,
+	validLinesByFile: Map<string, Set<number>>
+): { lineComments: ReviewCommentInput[]; invalidComments: ReviewComment[] } {
+	const lineComments: ReviewCommentInput[] = [];
+	const invalidComments: ReviewComment[] = [];
+
+	for (const [filePath, comments] of commentsByFile) {
+		const validLines = validLinesByFile.get(filePath);
+		for (const comment of comments) {
+			if (validLines?.has(comment.lineNumber)) {
+				const icon = {
+					error: ':red_circle:',
+					warning: ':yellow_circle:',
+					suggestion: ':large_blue_circle:',
+					nitpick: ':white_circle:',
+				}[comment.severity];
+
+				let body = `${icon} **[${comment.category}]** ${comment.message}`;
+				if (comment.suggestion) {
+					body += `\n\n> ${comment.suggestion}`;
+				}
+
+				lineComments.push({
+					path: filePath,
+					line: comment.lineNumber,
+					body,
+				});
+			} else {
+				invalidComments.push(comment);
+			}
+		}
+	}
+
+	return { lineComments, invalidComments };
+}
+
+function formatReviewAsMarkdown(
+	result: PRReviewResult,
+	prTitle: string,
+	prUrl: string,
+	invalidComments: ReviewComment[] = []
+): string {
 	const lines: string[] = [];
 
 	lines.push(`# PR Review: ${prTitle}\n`);
 	lines.push(`**PR:** [#${result.prNumber}](${prUrl})\n`);
 	lines.push(`**Date:** ${new Date().toISOString()}\n`);
 	lines.push('---\n');
-	lines.push('## 🤖 AI Code Review\n');
+	lines.push('## AI Code Review Summary\n');
 	lines.push(`**Total issues found:** ${result.totalComments}\n`);
-	lines.push(`- 🔴 Errors: ${result.stats.errors}`);
-	lines.push(`- 🟡 Warnings: ${result.stats.warnings}`);
-	lines.push(`- 🔵 Suggestions: ${result.stats.suggestions}`);
-	lines.push(`- ⚪ Nitpicks: ${result.stats.nitpicks}\n`);
+	lines.push(`- Errors: ${result.stats.errors}`);
+	lines.push(`- Warnings: ${result.stats.warnings}`);
+	lines.push(`- Suggestions: ${result.stats.suggestions}`);
+	lines.push(`- Nitpicks: ${result.stats.nitpicks}\n`);
 
+	if (invalidComments.length > 0) {
+		lines.push('### Issues outside diff range\n');
+		lines.push('The following issues could not be posted as inline comments:\n');
 
-	if (result.totalComments > 0) {
-		lines.push('### Details\n');
+		for (const comment of invalidComments) {
+			const icon = {
+				error: ':red_circle:',
+				warning: ':yellow_circle:',
+				suggestion: ':large_blue_circle:',
+				nitpick: ':white_circle:',
+			}[comment.severity];
 
-		for (const [filePath, comments] of result.commentsByFile) {
-			lines.push(`#### \`${filePath}\`\n`);
-			for (const comment of comments) {
-				const icon = {
-					error: '🔴',
-					warning: '🟡',
-					suggestion: '🔵',
-					nitpick: '⚪',
-				}[comment.severity];
-
-				lines.push(`${icon} **Line ${comment.lineNumber}:** ${comment.message}`);
-				if (comment.suggestion) {
-					lines.push(`> 💡 ${comment.suggestion}`);
-				}
-				lines.push('');
+			lines.push(`${icon} **\`${comment.filePath}\` Line ${comment.lineNumber}:** ${comment.message}`);
+			if (comment.suggestion) {
+				lines.push(`> ${comment.suggestion}`);
 			}
+			lines.push('');
 		}
 	}
 
@@ -178,3 +229,4 @@ function formatReviewAsMarkdown(result: PRReviewResult, prTitle: string, prUrl: 
 }
 
 program.parse();
+

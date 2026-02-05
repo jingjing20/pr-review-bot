@@ -131,10 +131,26 @@ export function getAddedLines(chunk: DiffChunk): DiffChange[] {
 	);
 }
 
+export function getValidLineNumbers(chunk: DiffChunk): Set<number> {
+	const validLines = new Set<number>();
+	for (const hunk of chunk.hunks) {
+		for (const change of hunk.changes) {
+			if (change.type === 'add' || change.type === 'context') {
+				validLines.add(change.lineNumber);
+			}
+		}
+	}
+	return validLines;
+}
+
 export function formatDiffForReview(chunk: DiffChunk): string {
 	const lines: string[] = [];
 	lines.push(`## ${chunk.filePath}`);
 	lines.push(`Change type: ${chunk.changeType}`);
+	lines.push('');
+	lines.push('Each line is prefixed with a line number marker:');
+	lines.push('- `[L<number>]` = line number in the new file (you can comment on these)');
+	lines.push('- `[DEL]` = deleted line (do NOT use for comments)');
 	lines.push('');
 
 	for (const hunk of chunk.hunks) {
@@ -142,7 +158,8 @@ export function formatDiffForReview(chunk: DiffChunk): string {
 		lines.push(hunk.header);
 		for (const change of hunk.changes) {
 			const prefix = change.type === 'add' ? '+' : change.type === 'delete' ? '-' : ' ';
-			lines.push(`${prefix}${change.content}`);
+			const lineMarker = change.type === 'delete' ? '[DEL]' : `[L${change.lineNumber}]`;
+			lines.push(`${lineMarker} ${prefix}${change.content}`);
 		}
 		lines.push('```');
 		lines.push('');

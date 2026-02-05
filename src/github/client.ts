@@ -1,6 +1,12 @@
 import { Octokit } from '@octokit/rest';
 import type { PullRequest, PullRequestFile, PRIdentifier } from './types.js';
 
+export interface ReviewCommentInput {
+	path: string;
+	line: number;
+	body: string;
+}
+
 export class GitHubClient {
 	private octokit: Octokit;
 
@@ -83,6 +89,27 @@ export class GitHubClient {
 			repo: id.repo,
 			issue_number: id.prNumber,
 			body,
+		});
+	}
+
+	async createReview(
+		id: PRIdentifier,
+		commitSha: string,
+		comments: ReviewCommentInput[],
+		body?: string
+	): Promise<void> {
+		await this.octokit.pulls.createReview({
+			owner: id.owner,
+			repo: id.repo,
+			pull_number: id.prNumber,
+			commit_id: commitSha,
+			body: body ?? '',
+			event: 'COMMENT',
+			comments: comments.map((c) => ({
+				path: c.path,
+				line: c.line,
+				body: c.body,
+			})),
 		});
 	}
 }

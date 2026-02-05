@@ -1,5 +1,5 @@
-export { GitHubClient } from './client.js';
-export { parseDiff, getAddedLines, formatDiffForReview } from './diff-parser.js';
+export { GitHubClient, type ReviewCommentInput } from './client.js';
+export { parseDiff, getAddedLines, getValidLineNumbers, formatDiffForReview } from './diff-parser.js';
 export type {
 	PullRequest,
 	PullRequestFile,

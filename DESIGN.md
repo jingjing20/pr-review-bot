@@ -1,4 +1,4 @@
-# Project 07: GitHub PR Review Bot
+# GitHub PR Review Bot
 
 > AI 驱动的代码审查机器人，自动分析 PR 变更并提供结构化审查意见。
 
