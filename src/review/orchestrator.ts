@@ -8,14 +8,7 @@ export class ReviewOrchestrator {
 	}
 
 	async reviewFile(context: ReviewContext): Promise<ReviewResult[]> {
-		const results: ReviewResult[] = [];
-
-		for (const agent of this.agents) {
-			const result = await agent.review(context);
-			results.push(result);
-		}
-
-		return results;
+		return Promise.all(this.agents.map((agent) => agent.review(context)));
 	}
 
 	async reviewPR(
